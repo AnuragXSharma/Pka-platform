@@ -34,8 +34,8 @@ module "eks" {
   eks_managed_node_groups = {
     mgmt = {
       min_size     = 2
-      max_size     = 3
-      instance_types = ["t3.medium"] # Reliable for Argo CD workloads
+      max_size     = 2
+      instance_types = ["t3.small"] # Reliable for Argo CD workloads
     }
   }
 }
