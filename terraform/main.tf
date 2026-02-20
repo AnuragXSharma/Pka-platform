@@ -1,25 +1,20 @@
-# pka-platform/terraform/main.tf
-
-# 1. Fetch available AZs for the region
-data "aws_availability_zones" "available" {}
-
-# 2. Build the Networking (VPC)
+# 1. Network Infrastructure (VPC)
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
 
   name = "pka-mgmt-vpc"
   cidr = "10.0.0.0/16"
+  azs  = ["us-east-1a", "us-east-1b"]
 
-  azs             = slice(data.aws_availability_zones.available.names, 0, 3)
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
 
   enable_nat_gateway = true
-  single_nat_gateway = true # Saves cost for a Management Cluster
+  single_nat_gateway = true # Massive cost saver for development
 }
 
-# 3. Create the EKS Cluster
+# 2. The EKS Cluster (The "Hub")
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 19.0"
@@ -33,27 +28,48 @@ module "eks" {
 
   eks_managed_node_groups = {
     mgmt = {
-      min_size     = 2
-      max_size     = 2
-      instance_types = ["t3.small"] # Reliable for Argo CD workloads
+      instance_types = ["t3.small"]
+      capacity_type  = "SPOT" # Saves ~90% on compute costs
+      min_size       = 2
+      max_size       = 2
+      desired_size   = 2
     }
   }
 }
 
-# 4. Install Argo CD via Helm
+# 3. Argo CD Installation via Helm
 resource "helm_release" "argocd" {
-  # This is critical: Do not attempt install until the cluster is ready
-  depends_on = [module.eks]
+  depends_on = [module.eks] # Wait for cluster to be healthy
 
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
   chart            = "argo-cd"
   namespace        = "argocd"
   create_namespace = true
-  version          = "7.3.11" 
+  version          = "7.3.11"
 
   set {
     name  = "server.service.type"
-    value = "LoadBalancer"
+    value = "LoadBalancer" # Generates the external URL for the UI
+  }
+}
+
+# 4. Automation Snippet: Fetch Password & Update Kubeconfig
+resource "null_resource" "post_install" {
+  depends_on = [helm_release.argocd]
+
+  provisioner "local-exec" {
+    # This command updates your local ~/.kube/config so you can run kubectl immediately
+    # Then it grabs the auto-generated Argo CD password and saves it locally
+    command = <<EOT
+      aws eks update-kubeconfig --region us-east-1 --name pka-mgmt-hub
+      echo "Waiting for Argo CD secret to be generated..."
+      sleep 30
+      kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d > argocd-password.txt
+      echo "-----------------------------------------------------------"
+      echo "SETUP COMPLETE"
+      echo "Argo CD Password has been saved to: terraform/argocd-password.txt"
+      echo "-----------------------------------------------------------"
+    EOT
   }
 }
