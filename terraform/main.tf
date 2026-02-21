@@ -33,6 +33,8 @@ module "eks" {
 
   eks_managed_node_groups = {
     mgmt = {
+    # Optional: AWS now defaults to this for 1.30+
+      ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = ["t3.small"]
       capacity_type  = "SPOT" # Saves ~90% on compute costs
       min_size       = 2
