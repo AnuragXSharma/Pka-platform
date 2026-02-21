@@ -17,8 +17,10 @@ permissions:
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
     env:
-      TF_WORKING_DIR: "./terraform"
       CLUSTER_NAME: "pka-mgmt-hub"
       REGION: "us-east-1"
 
@@ -62,8 +64,7 @@ jobs:
 
       # --- CORE ACTIONS ---
       - name: Terraform Action
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        env:
+       env:
           TF_VAR_github_token: ${{ secrets.GITOPS_TOKEN }}
         run: |
           if [ "${{ github.event.inputs.action }}" == "plan" ]; then
@@ -73,4 +74,4 @@ jobs:
           elif [ "${{ github.event.inputs.action }}" == "destroy" ]; then
             terraform destroy -auto-approve
           fi
-        working-directory: ${{ env.TF_WORKING_DIR }}
+       
