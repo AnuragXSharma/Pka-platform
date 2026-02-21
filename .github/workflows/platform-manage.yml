@@ -1,5 +1,4 @@
 name: "Platform Manager"
-
 on:
   workflow_dispatch:
     inputs:
