@@ -73,7 +73,7 @@ resource "kubernetes_secret" "argocd_repo_credentials" {
     }
   }
 
-  string_data = {
+ data = {
     type     = "git"
     url      = "https://github.com/AnuragXSharma/pka-infra.git" # Update this!
     password = var.github_token
