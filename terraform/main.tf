@@ -22,7 +22,7 @@ module "vpc" {
 # 2. The EKS Cluster (The "Hub")
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+  version = "~> 20.0"
 
   cluster_name    = "pka-mgmt-hub"
   cluster_version = "1.35"
