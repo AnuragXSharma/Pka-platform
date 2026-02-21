@@ -1,3 +1,8 @@
+variable "github_token" {
+  description = "GitHub PAT for Argo CD"
+  type        = string
+  sensitive   = true
+}
 # 1. Network Infrastructure (VPC)
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -53,8 +58,29 @@ resource "helm_release" "argocd" {
     value = "LoadBalancer" # Generates the external URL for the UI
   }
 }
+# 4. PASTE THE REPO SECRET HERE
+resource "kubernetes_secret" "argocd_repo_credentials" {
+  # This "depends_on" is crucial. It tells Terraform: 
+  # "Don't try to create the secret until the Argo CD namespace exists!"
+  depends_on = [helm_release.argocd]
 
-# 4. Automation Snippet: Fetch Password & Update Kubeconfig
+  metadata {
+    name      = "pka-infra-repo-creds"
+    namespace = "argocd"
+    labels = {
+      # This label tells Argo CD: "This secret is a repository credential"
+      "argocd.argoproj.io/secret-type" = "repository"
+    }
+  }
+
+  string_data = {
+    type     = "git"
+    url      = "https://github.com/your-org/pka-infra.git" # Update this!
+    password = var.github_token
+    username = "git" 
+  }
+}
+# 5. Automation Snippet: Fetch Password & Update Kubeconfig
 resource "null_resource" "post_install" {
   depends_on = [helm_release.argocd]
 
