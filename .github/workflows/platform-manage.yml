@@ -8,10 +8,7 @@ on:
         required: true
         default: 'plan'
         type: choice
-        options:
-          - plan
-          - apply
-          - destroy
+        options: [plan, apply, destroy]
 
 permissions:
   id-token: write
@@ -19,10 +16,11 @@ permissions:
 
 jobs:
   terraform:
-    name: "Terraform ${{ github.event.inputs.action }}"
     runs-on: ubuntu-latest
     env:
       TF_WORKING_DIR: "./terraform"
+      CLUSTER_NAME: "pka-mgmt-hub"
+      REGION: "us-east-1"
 
     steps:
       - name: Checkout
@@ -32,7 +30,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/ArgoCD-Hub-Provisioner
-          aws-region: us-east-1
+          aws-region: ${{ env.REGION }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -41,18 +39,35 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_WORKING_DIR }}
 
-      # Action logic based on your selection
-      - name: Terraform Plan
-        if: github.event.inputs.action == 'plan'
-        run: terraform plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      - name: Terraform Apply
-        if: github.event.inputs.action == 'apply'
-        run: terraform apply -auto-approve
-        working-directory: ${{ env.TF_WORKING_DIR }}
-
-      - name: Terraform Destroy
+      # --- PRE-DESTROY CLEANUP ---
+      - name: Cleanup Kubernetes Resources
         if: github.event.inputs.action == 'destroy'
-        run: terraform destroy -auto-approve
+        run: |
+          # 1. Attempt to connect to the cluster. 
+          # We use '|| true' or a check to see if the cluster actually exists in AWS first.
+          if aws eks describe-cluster --name ${{ env.CLUSTER_NAME }} --region ${{ env.REGION }} >/dev/null 2>&1; then
+            echo "✅ Cluster found. Updating kubeconfig..."
+            aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.REGION }}
+            
+            echo "📦 Uninstalling Argo CD to release Load Balancers..."
+            # Using --wait ensures helm finishes the deletion before we move on
+            helm uninstall argocd -n argocd --wait || echo "⚠️ ArgoCD already gone or namespace missing."
+            
+            echo "⏳ Waiting for ENIs and LoadBalancers to clear from AWS..."
+            sleep 60
+          else
+            echo "ℹ️ Cluster not found in AWS. Skipping Argo CD K8s-level cleanup."
+          fi
+        continue-on-error: true
+
+      # --- CORE ACTIONS ---
+      - name: Terraform Action
+        run: |
+          if [ "${{ github.event.inputs.action }}" == "plan" ]; then
+            terraform plan
+          elif [ "${{ github.event.inputs.action }}" == "apply" ]; then
+            terraform apply -auto-approve
+          elif [ "${{ github.event.inputs.action }}" == "destroy" ]; then
+            terraform destroy -auto-approve
+          fi
         working-directory: ${{ env.TF_WORKING_DIR }}
