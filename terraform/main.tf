@@ -30,7 +30,20 @@ module "eks" {
   vpc_id                         = module.vpc.vpc_id
   subnet_ids                     = module.vpc.private_subnets
   cluster_endpoint_public_access = true
-
+ # Allow the cluster to be managed by the IAM Role we created for GitHub
+  enable_cluster_creator_admin_permissions = true
+  access_entries = {
+    # Access for your SSO Administrator role (Anurag)
+    sso_admin = {
+      principal_arn = "arn:aws:iam::622778846520:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_f38fc6e676a1d99c"
+      policy_associations = {
+        admin = {
+          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+          access_scope = { type = "cluster" }
+        }
+      }
+    }
+  }
   eks_managed_node_groups = {
     mgmt = {
     # Optional: AWS now defaults to this for 1.30+
