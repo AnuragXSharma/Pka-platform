@@ -29,7 +29,7 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<YOUR_ACCOUNT_ID>:role/ArgoCD-Hub-Provisioner
+          role-to-assume: arn:aws:iam::622778846520:role/ArgoCD-Hub-Provisioner
           aws-region: ${{ env.REGION }}
 
       - name: Setup Terraform
