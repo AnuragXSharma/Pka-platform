@@ -3,23 +3,29 @@ variable "github_token" {
   type        = string
   sensitive   = true
 }
-# 1. Network Infrastructure (VPC)
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
 
-  name = "pka-mgmt-vpc"
-  cidr = "10.0.0.0/16"
-  azs  = ["us-east-1a", "us-east-1b"]
-
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
-
-  enable_nat_gateway = true
-  single_nat_gateway = true # Massive cost saver for development
+# 1. FIND EXISTING INFRASTRUCTURE (Instead of building it)
+# Find the VPC built in the infra repo
+data "aws_vpc" "pka_vpc" {
+  filter {
+    name   = "tag:pka-project"
+    values = ["pka-mgmt"] # Matches the tag we added to pka-infra
+  }
 }
 
-# 2. The EKS Cluster (The "Hub")
+# Find the Private Subnets for the EKS Nodes
+data "aws_subnets" "private" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.pka_vpc.id]
+  }
+  filter {
+    name   = "tag:pka-network-type"
+    values = ["private"]
+  }
+}
+
+# 2. THE EKS CLUSTER (Using discovered IDs)
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 20.0"
@@ -27,13 +33,14 @@ module "eks" {
   cluster_name    = "pka-mgmt-hub"
   cluster_version = "1.35"
 
-  vpc_id                         = module.vpc.vpc_id
-  subnet_ids                     = module.vpc.private_subnets
+  # Use data source IDs here
+  vpc_id     = data.aws_vpc.pka_vpc.id
+  subnet_ids = data.aws_subnets.private.ids 
+
   cluster_endpoint_public_access = true
- # Allow the cluster to be managed by the IAM Role we created for GitHub
   enable_cluster_creator_admin_permissions = true
+
   access_entries = {
-    # Access for your SSO Administrator role (Anurag)
     sso_admin = {
       principal_arn = "arn:aws:iam::622778846520:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_f38fc6e676a1d99c"
       policy_associations = {
@@ -44,12 +51,12 @@ module "eks" {
       }
     }
   }
+
   eks_managed_node_groups = {
     mgmt = {
-    # Optional: AWS now defaults to this for 1.30+
       ami_type       = "AL2023_x86_64_STANDARD"
       instance_types = ["t3.small"]
-      capacity_type  = "SPOT" # Saves ~90% on compute costs
+      capacity_type  = "SPOT"
       min_size       = 2
       max_size       = 2
       desired_size   = 2
@@ -59,7 +66,7 @@ module "eks" {
 
 # 3. Argo CD Installation via Helm
 resource "helm_release" "argocd" {
-  depends_on = [module.eks] # Wait for cluster to be healthy
+  depends_on = [module.eks]
 
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
@@ -70,47 +77,47 @@ resource "helm_release" "argocd" {
 
   set {
     name  = "server.service.type"
-    value = "LoadBalancer" # Generates the external URL for the UI
+    value = "LoadBalancer" 
+  }
+
+  # This ensures the LoadBalancer is placed in the PUBLIC subnets 
+  # of your existing VPC so you can access the UI from the internet.
+  set {
+    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
+    value = "internet-facing"
   }
 }
-# 4. PASTE THE REPO SECRET HERE
+
+# 4. REPO CREDENTIALS
 resource "kubernetes_secret" "argocd_repo_credentials" {
-  # This "depends_on" is crucial. It tells Terraform: 
-  # "Don't try to create the secret until the Argo CD namespace exists!"
   depends_on = [helm_release.argocd]
 
   metadata {
     name      = "pka-infra-repo-creds"
     namespace = "argocd"
     labels = {
-      # This label tells Argo CD: "This secret is a repository credential"
       "argocd.argoproj.io/secret-type" = "repository"
     }
   }
 
- data = {
+  data = {
     type     = "git"
-    url      = "https://github.com/AnuragXSharma/pka-infra.git" # Update this!
+    url      = "https://github.com/AnuragXSharma/pka-infra.git"
     password = var.github_token
     username = "git" 
   }
 }
-# 5. Automation Snippet: Fetch Password & Update Kubeconfig
+
+# 5. AUTOMATION SNIPPET
 resource "null_resource" "post_install" {
   depends_on = [helm_release.argocd]
 
   provisioner "local-exec" {
-    # This command updates your local ~/.kube/config so you can run kubectl immediately
-    # Then it grabs the auto-generated Argo CD password and saves it locally
     command = <<EOT
       aws eks update-kubeconfig --region us-east-1 --name pka-mgmt-hub
-      echo "Waiting for Argo CD secret to be generated..."
+      echo "Waiting for Argo CD secret..."
       sleep 30
       kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d > argocd-password.txt
-      echo "-----------------------------------------------------------"
-      echo "SETUP COMPLETE"
-      echo "Argo CD Password has been saved to: terraform/argocd-password.txt"
-      echo "-----------------------------------------------------------"
     EOT
   }
 }
