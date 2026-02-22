@@ -11,6 +11,10 @@ permissions:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    # --- ADD THIS IF YOUR FILES ARE IN A SUBFOLDER ---
+    defaults:
+       run:
+         working-directory: ./terraform
     steps:
       - name: Checkout
         uses: actions/checkout@v4
