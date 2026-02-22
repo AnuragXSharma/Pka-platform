@@ -1,7 +1,12 @@
 name: "Terraform State Cleanup"
 
 on:
-  workflow_dispatch: # This allows you to run it manually with a button click
+  workflow_dispatch:
+
+# CRITICAL: These permissions are required for requesting the JWT OIDC token
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   cleanup:
@@ -10,21 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Replace with your actual IAM Role ARN
+          role-to-assume: arn:aws:iam::622778846520:role/ArgoCD-Hub-Provisioner
           aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
         run: terraform init
 
       - name: Remove Ghost Resources from State
-        # We use "|| true" so the pipeline doesn't fail if the resource is already gone
         run: |
           terraform state rm helm_release.argocd || true
           terraform state rm kubernetes_secret.argocd_repo_credentials || true
