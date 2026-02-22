@@ -17,7 +17,10 @@ backend "s3" {
 provider "aws" {
   region = "us-east-1" # Change this if needed
 }
-
+# 1. Fetch the authentication token via data source (More stable in CI)
+data "aws_eks_cluster_auth" "cluster" {
+  name = "pka-mgmt-hub" # Hardcode this or use a variable to break the module dependency
+}
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
