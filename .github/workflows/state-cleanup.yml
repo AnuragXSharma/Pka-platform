@@ -1,0 +1,32 @@
+name: "Terraform State Cleanup"
+
+on:
+  workflow_dispatch: # This allows you to run it manually with a button click
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Remove Ghost Resources from State
+        # We use "|| true" so the pipeline doesn't fail if the resource is already gone
+        run: |
+          terraform state rm helm_release.argocd || true
+          terraform state rm kubernetes_secret.argocd_repo_credentials || true
+          terraform state rm 'module.eks.aws_eks_cluster.this[0]' || true
+          terraform state rm 'module.eks.module.eks_managed_node_group["mgmt"].aws_eks_node_group.this[0]' || true
