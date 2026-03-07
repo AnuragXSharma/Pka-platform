@@ -61,7 +61,7 @@ module "eks" {
     type        = "egress"
 
     cidr_blocks = [
-      for s in data.aws_subnet.app_private_cidr :
+      for s in data.aws_subnets.private.ids :
       s.cidr_block
     ]
   }
