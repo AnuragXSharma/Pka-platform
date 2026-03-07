@@ -20,6 +20,11 @@ provider "aws" {
 # 1. Fetch the authentication token via data source (More stable in CI)
 data "aws_eks_cluster_auth" "cluster" {
   name = "pka-mgmt-hub" # Hardcode this or use a variable to break the module dependency
+  depends_on = [module.eks]
+}
+data "aws_eks_cluster_auth" "cluster" {
+name       = "pka-mgmt-hub"
+depends_on = [module.eks]
 }
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
