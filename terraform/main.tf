@@ -5,24 +5,32 @@ variable "github_token" {
 }
 
 # 1. FIND EXISTING INFRASTRUCTURE (Instead of building it)
+
 # Find the VPC built in the infra repo
 data "aws_vpc" "pka_vpc" {
   filter {
     name   = "tag:pka-project"
-    values = ["pka-mgmt"] # Matches the tag we added to pka-infra
+    values = ["pka-mgmt"]
   }
 }
 
-# Find the Private Subnets for the EKS Nodes
+# Find the private subnets for the EKS nodes
 data "aws_subnets" "private" {
   filter {
     name   = "vpc-id"
     values = [data.aws_vpc.pka_vpc.id]
   }
+
   filter {
     name   = "tag:pka-network-type"
     values = ["private"]
   }
+}
+
+# Fetch full subnet details so CIDR blocks can be used
+data "aws_subnet" "app_private_details" {
+  for_each = toset(data.aws_subnets.private.ids)
+  id       = each.value
 }
 
 # 2. THE EKS CLUSTER (Using discovered IDs)
@@ -33,46 +41,45 @@ module "eks" {
   cluster_name    = "pka-mgmt-hub"
   cluster_version = "1.35"
 
-  # Use data source IDs here
   vpc_id     = data.aws_vpc.pka_vpc.id
- #subnet_ids = data.aws_subnets.private.ids 
-data "aws_subnet" "app_private_details" {
-  for_each = toset(data.aws_subnets.private.ids)
-  id       = each.value
-}
+  subnet_ids = data.aws_subnets.private.ids
 
-  cluster_endpoint_public_access = true
+  cluster_endpoint_public_access           = true
   enable_cluster_creator_admin_permissions = true
-   # --- DISABLE CMK CREATION ---
+
+  # Disable CMK creation
   create_kms_key = false
-  # Disable Secrets Encryption entirely (Free)
+
+  # Disable secrets encryption entirely
   cluster_encryption_config = {}
+
   node_security_group_additional_rules = {
-  ingress_self_all = {
-    description = "Node to node all ports/protocols"
-    protocol    = "-1"
-    from_port   = 0
-    to_port     = 0
-    type        = "ingress"
-    self        = true
+    ingress_self_all = {
+      description = "Node to node all ports/protocols"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "ingress"
+      self        = true
+    }
+
+    egress_to_app_subnets = {
+      description = "Allow ArgoCD nodes to reach App Private Subnets"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "egress"
+
+      cidr_blocks = [
+        for s in data.aws_subnet.app_private_details : s.cidr_block
+      ]
+    }
   }
 
-  egress_to_app_subnets = {
-    description = "Allow ArgoCD nodes to reach App Private Subnets"
-    protocol    = "-1"
-    from_port   = 0
-    to_port     = 0
-    type        = "egress"
-
-    cidr_blocks = [
-      for s in data.aws_subnet.app_private_details :
-      s.cidr_block
-    ]
-  }
-}
   access_entries = {
     sso_admin = {
       principal_arn = "arn:aws:iam::622778846520:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_f38fc6e676a1d99c"
+
       policy_associations = {
         admin = {
           policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
@@ -107,11 +114,9 @@ resource "helm_release" "argocd" {
 
   set {
     name  = "server.service.type"
-    value = "LoadBalancer" 
+    value = "LoadBalancer"
   }
 
-  # This ensures the LoadBalancer is placed in the PUBLIC subnets 
-  # of your existing VPC so you can access the UI from the internet.
   set {
     name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
     value = "internet-facing"
@@ -125,6 +130,7 @@ resource "kubernetes_secret" "argocd_repo_credentials" {
   metadata {
     name      = "pka-infra-repo-creds"
     namespace = "argocd"
+
     labels = {
       "argocd.argoproj.io/secret-type" = "repository"
     }
@@ -134,10 +140,11 @@ resource "kubernetes_secret" "argocd_repo_credentials" {
     type     = "git"
     url      = "https://github.com/AnuragXSharma/pka-infra.git"
     password = var.github_token
-    username = "git" 
+    username = "git"
   }
 }
-#5 Connect to pka-app-cluster
+
+# 5. Connect to pka-app-cluster
 resource "kubernetes_secret" "app_cluster_registration" {
   depends_on = [helm_release.argocd]
 
@@ -167,7 +174,8 @@ resource "kubernetes_secret" "app_cluster_registration" {
     })
   }
 }
-# 5. AUTOMATION SNIPPET
+
+# 6. AUTOMATION SNIPPET
 resource "null_resource" "post_install" {
   depends_on = [helm_release.argocd]
 
