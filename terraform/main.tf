@@ -39,7 +39,33 @@ module "eks" {
 
   cluster_endpoint_public_access = true
   enable_cluster_creator_admin_permissions = true
+   # --- DISABLE CMK CREATION ---
+  create_kms_key = false
+  # Disable Secrets Encryption entirely (Free)
+  cluster_encryption_config = {}
+  node_security_group_additional_rules = {
+  ingress_self_all = {
+    description = "Node to node all ports/protocols"
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    type        = "ingress"
+    self        = true
+  }
 
+  egress_to_app_subnets = {
+    description = "Allow ArgoCD nodes to reach App Private Subnets"
+    protocol    = "-1"
+    from_port   = 0
+    to_port     = 0
+    type        = "egress"
+
+    cidr_blocks = [
+      for s in data.aws_subnet.app_private_cidr :
+      s.cidr_block
+    ]
+  }
+}
   access_entries = {
     sso_admin = {
       principal_arn = "arn:aws:iam::622778846520:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AdministratorAccess_f38fc6e676a1d99c"
