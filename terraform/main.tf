@@ -35,7 +35,11 @@ module "eks" {
 
   # Use data source IDs here
   vpc_id     = data.aws_vpc.pka_vpc.id
-  subnet_ids = data.aws_subnets.private.ids 
+ #subnet_ids = data.aws_subnets.private.ids 
+data "aws_subnet" "app_private_details" {
+  for_each = toset(data.aws_subnets.private.ids)
+  id       = each.value
+}
 
   cluster_endpoint_public_access = true
   enable_cluster_creator_admin_permissions = true
@@ -61,7 +65,7 @@ module "eks" {
     type        = "egress"
 
     cidr_blocks = [
-      for s in data.aws_subnets.private.ids :
+      for s in data.aws_subnet.app_private_details :
       s.cidr_block
     ]
   }
