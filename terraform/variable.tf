@@ -1,7 +1,7 @@
 variable "register_app_cluster" {
   description = "Set to true only after the pka-app-cluster has been created in its own repo"
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "app_cluster_name" {
