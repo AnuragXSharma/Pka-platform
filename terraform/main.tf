@@ -145,11 +145,17 @@ resource "kubernetes_secret" "argocd_repo_credentials" {
 }
 
 # 5. Connect to pka-app-cluster
+# This data source will only execute if register_app_cluster is true
+data "aws_eks_cluster" "app_cluster" {
+  count = var.register_app_cluster ? 1 : 0
+  name  = var.app_cluster_name
+}
 resource "kubernetes_secret" "app_cluster_registration" {
   depends_on = [helm_release.argocd]
-
+# This secret is only created if the cluster is ready to be registered
+  count = var.register_app_cluster ? 1 : 0
   metadata {
-    name      = "pka-app-cluster-secret"
+    name      = "${var.app_cluster_name}-secret"
     namespace = "argocd"
 
     labels = {
@@ -158,18 +164,18 @@ resource "kubernetes_secret" "app_cluster_registration" {
   }
 
   data = {
-    name   = "pka-app-cluster"
-    server = "https://241CB3294FAD0F7433CF401417433B75.gr7.us-east-1.eks.amazonaws.com"
+    name   = var.app_cluster_name
+    server = data.aws_eks_cluster.app_cluster[0].endpoint
 
     config = jsonencode({
       awsAuthConfig = {
-        clusterName = "pka-app-cluster"
+        clusterName = var.app_cluster_name
         roleARN     = "arn:aws:iam::622778846520:role/GitHubAction-EKS-Deployer"
       }
 
       tlsClientConfig = {
         insecure = false
-        caData   = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURCVENDQWUyZ0F3SUJBZ0lJWEVSY2k5QjIzSjB3RFFZSktvWklodmNOQVFFTEJRQXdGVEVUTUJFR0ExVUUKQXhNS2EzVmlaWEp1WlhSbGN6QWVGdzB5TmpBek1EY3dNalF4TkRoYUZ3MHpOakF6TURRd01qUTJORGhhTUJVeApFekFSQmdOVkJBTVRDbXQxWW1WeWJtVjBaWE13Z2dFaU1BMEdDU3FHU0liM0RRRUJBUVVBQTRJQkR3QXdnZ0VLCkFvSUJBUUMxUlNZVnlnZEM2UEgzZXIvSjdCUEFnN3RVZURkWlY5Z3d1RXlNL0lpN3A0WUVremFzQWNMcTJ6TlcKeG5WNHU3T1BLUVE3aDV6TkdJcnlZN1VNMjFPTytmM2hkWTNUYkJqZ1NEV1Z0UkhvMWpYdVlJajF6ZjVDTkU5LwptMHREL3FZTzBYMlR0WEFtK3hsZnBNRnZhZmRJcEp2Y1JrZmsyRXZUdWNTdFd2eDdTT3VQQUZqTFN1VllONU91Cm5mYWl1NHorMUt2T3haR3o0dU01U0JBY3NOdGFDSGF3aEZxOXNjcDNsbEdXUmFqazVkUUZTN2dHdmVsU2czYy8Kb0dKSzI1SW1nR0RyUjhhNkNoZDBvMXYrZTh6elg2TUp1TS9IOHQ3T2djaVBkemQrSDVCbFR4M1VGOGNrWE9OMQp5V2pKUjFpQVpGWnBhelN1bTV5SThBQlp0SWlqQWdNQkFBR2pXVEJYTUE0R0ExVWREd0VCL3dRRUF3SUNwREFQCkJnTlZIUk1CQWY4RUJUQURBUUgvTUIwR0ExVWREZ1FXQkJUQ0wvaDUwdXVETlZnWTZEUlVBMXFUSm82cVhEQVYKQmdOVkhSRUVEakFNZ2dwcmRXSmxjbTVsZEdWek1BMEdDU3FHU0liM0RRRUJDd1VBQTRJQkFRQ0hkWWVVOG9RYwpvL1EzbkxvSGVNVmdEdk9QVlZ0NE95REtFMitnOE9hOG1nYUVPekQvKzYvNkFFNlpxUDFkKzBDaUlnV2p0bFJlCjhuUExJQ3FicXRwNHdtR1ptR0NMZmlLOE4vWkoxZzZjdzBUenBhZS9qdlRXbzNtMFlFVEdGL2JvUFJkUmNrWW8KSW1mQ3hZckN3NjI0SEVtSElTZ2VhL0FTd1g1MlRNbVhOVENObFRUUXNTZnE0SXh0d1VPWm1kRk5sQjNkNmNzRgp5WW9kUktPeVdnQUVYbFZhaHNrY0N2V0E4OTIvSTMyNUVodjRwMWg2OGd3cFhrODVCZXRPWldid0Q0cmJQRUlYClFRdG1iUDVWUUJKeGFGdE4zT0JnSkJEeDNKYXMrY0c5QkNiZjJ1bTBwcElxU1FNdVRtZ1dJOTdFQ2R5VVdqZ0sKZGZ1OVZ3ZDBndGppCi0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
+        caData   = data.aws_eks_cluster.app_cluster[0].certificate_authority[0].data
       }
     })
   }
